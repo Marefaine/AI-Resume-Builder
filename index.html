@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Add your CSS stylesheet for the Sega look and feel here -->
+    <link rel="stylesheet" href="styles.css">
+    <!-- Bootstrap CSS -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+
+    <title>Interactive Resume Rewriter</title>
+    <style>
+        /* Add Sega-inspired styling here */
+.segastyle {
+    background-color: #000;
+    color: #fff;
+    font-family: "Sega Logo Font", Arial, sans-serif;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.title {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+}
+
+.input {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.btn {
+    padding: 10px 20px;
+    margin-top: 10px;
+    background-color: #3498db;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background-color: #2980b9;
+}
+
+.textarea {
+    width: 100%;
+    height: 200px;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+/* Add styling for download buttons and loading spinner */
+.download-section {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.download-btn {
+    margin-right: 10px;
+}
+
+.spinner {
+    display: none;
+    margin-right: 10px;
+}
+
+    </style>
+</head>
+<body class="segastyle">
+<div class="container">
+    <h1 class="display-4">Interactive Resume Rewriter</h1>
+    <div class="form-group">
+        <label for="fileInput">Select a .docx file to upload:</label>
+        <input type="file" id="fileInput" class="form-control-file" />
+    </div>
+    <button id="uploadBtn" class="btn btn-primary" disabled>Upload Resume</button>
+    <div id="resultContainer" class="mt-4"></div>
+    <textarea id="editArea" class="form-control mt-4"></textarea>
+    <button id="submitEditBtn" class="btn btn-success mt-4" disabled>Submit Edited Resume</button>
+    <!-- Add download buttons here -->
+    <div class="mt-4">
+        <div class="spinner-border text-primary" role="status" style="display: none;" id="loadingSpinner">
+            <span class="sr-only">Loading...</span>
+        </div>
+
+        <button id="downloadTextBtn" class="btn btn-primary">Download as Text</button>
+        <button id="downloadWordBtn" class="btn btn-primary ml-4">Download as Word</button>
+    </div>
+</div>
+
+    <script>
+        // Your API URL and API key
+const API_URL = "https://api.openai.com/v1/chat/completions";
+const API_KEY = "YOUR_API_KEY";
+
+// DOM elements
+const fileInput = document.getElementById("fileInput");
+const uploadBtn = document.getElementById("uploadBtn");
+const resultContainer = document.getElementById("resultContainer");
+const editArea = document.getElementById("editArea");
+const submitEditBtn = document.getElementById("submitEditBtn");
+const downloadTextBtn = document.getElementById("downloadTextBtn");
+const downloadWordBtn = document.getElementById("downloadWordBtn");
+const loadingSpinner = document.getElementById("loadingSpinner");
+
+// Initialize the AbortController
+let controller = null;
+
+// Function to upload and process the resume
+const uploadAndProcessResume = async () => {
+    const file = fileInput.files[0];
+    if (!file) {
+        alert("Please select a .docx file to upload.");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const arrayBuffer = e.target.result;
+        // Extract raw text using Mammoth
+        try {
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const text = result.value;
+            sendToAIForRewriting(text);
+        } catch (error) {
+            console.error("Error extracting text: ", error);
+        }
+    };
+    reader.readAsArrayBuffer(file);
+};
+
+// Function to download edited text as plain text
+const downloadAsText = () => {
+    const editedText = editArea.value;
+    // Create and trigger a download link
+    const blob = new Blob([editedText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "edited_resume.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+// Function to download edited text as Word document
+const downloadAsWord = () => {
+    const editedText = editArea.value;
+
+    // Convert the edited text to a Word document using Mammoth
+    mammoth.convertText(editedText, { format: "docx" })
+        .then((result) => {
+            const blob = new Blob([result.value], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "edited_resume.docx";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        })
+        .catch((error) => {
+            console.error("Error converting to Word:", error);
+        });
+};
+
+// Function to send text to AI for rewriting
+const sendToAIForRewriting = async (text) => {
+    // Create an AbortController instance
+    controller = new AbortController();
+    const signal = controller.signal;
+
+    // Craft a prompt for the AI
+    const promptForRewriting = `Rewrite the following resume to be more impactful and professional:\n\n${text}`;
+
+    try {
+        // Make a request to the OpenAI API
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: "gpt-3.5-turbo",
+                messages: [{ role: "user", content: promptForRewriting }],
+                max_tokens: 1000, // Adjusted for potentially longer output
+            }),
+            signal,
+        });
+
+        const data = await response.json();
+        const rewrittenResume = data.choices[0].message.content;
+        resultContainer.innerText = rewrittenResume;
+        editArea.value = rewrittenResume; // Populate the edit area with the rewritten resume
+    } catch (error) {
+        if (signal.aborted) {
+            resultContainer.innerText = "Request aborted.";
+        } else {
+            console.error("Error:", error);
+            resultContainer.innerText = "Error occurred while generating.";
+        }
+    } finally {
+        // Enable buttons and reset the controller
+        uploadBtn.disabled = false;
+        submitEditBtn.disabled = false;
+        controller = null;
+    }
+};
+
+// Function to submit the edited resume
+const submitEditedResume = () => {
+    const editedText = editArea.value;
+    sendToAIForRewriting(editedText);
+};
+
+// Event listeners for buttons
+uploadBtn.addEventListener("click", uploadAndProcessResume);
+submitEditBtn.addEventListener("click", submitEditedResume);
+downloadTextBtn.addEventListener("click", downloadAsText);
+downloadWordBtn.addEventListener("click", downloadAsWord);
+
+        
+        
+    </script>
+    <!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+
+<!-- Popper.js (required by Bootstrap) -->
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+
+<!-- Bootstrap CSS -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+
+<!-- Bootstrap JS (required by Bootstrap) -->
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+<!-- Your custom JavaScript file (app.js) -->
+<script src="app.js"></script>
+
+</body>
+</html>
